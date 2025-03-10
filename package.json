@@ -1,0 +1,21 @@
+{
+  "name": "st-rupert-clinic-appointment-system-backend",
+  "version": "1.0.0",
+  "description": "Express with Postgresql connection",
+  "main": "web.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "heroku",
+    "clinic"
+  ],
+  "author": "Kenny Reyes",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.21.2"
+  },
+  "engines": {
+  "node": "22.x"
+  }
+}
