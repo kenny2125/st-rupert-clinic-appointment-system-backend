@@ -6,6 +6,7 @@ const emailRoutes = require('./routes/emailRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
 const appointmentRoutes = require('./routes/appointmentRoutes');
 const adminRoutes = require('./routes/adminRoutes');
+const authRoutes = require('./routes/authRoutes');
 const emailService = require('./services/emailService');
 const supabaseRouter = require('./supabaseServer');
 const app = express();
@@ -28,6 +29,7 @@ app.use('/api/email', emailRoutes);
 app.use('/api/payment', paymentRoutes);
 app.use('/api/appointment', appointmentRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/auth', authRoutes);
 app.use('/api/supabase', supabaseRouter);
 
 

@@ -2,7 +2,8 @@ const express = require('express');
 const router = express.Router();
 const emailService = require('../services/emailService');
 
-// Route to send email verification code
+
+// Route to send email verification code - Done
 router.post('/send-verification-code', async (req, res) => {
   try {
     const { email } = req.body;
@@ -40,7 +41,7 @@ router.post('/send-verification-code', async (req, res) => {
   }
 });
 
-// Route to verify the email code
+// Route to verify the email code - Done
 router.post('/verify-email-code', async (req, res) => {
   try {
     const { email, code } = req.body;
@@ -135,8 +136,8 @@ router.post('/resend-verification-code', async (req, res) => {
   }
 });
 
-// Route to send appointment confirmation email
-router.post('/send-appointment-confirmation', async (req, res) => {
+// Route to send appointment details email
+router.post('/send-appointment-details', async (req, res) => {
   try {
     // Use data from request body or fallback to hardcoded values
     const appointmentData = req.body || {
