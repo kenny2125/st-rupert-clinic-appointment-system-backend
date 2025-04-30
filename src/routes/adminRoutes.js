@@ -37,6 +37,27 @@ router.delete('/appointments/:id', (req, res) => {
   res.json({ success: true, message: 'Appointment deleted' });
 });
 
+// Update appointment status - DOne
+router.patch('/appointments/:id/status', async (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body;
+  const allowed = ['pending','checked-in','in_consultation','complete','cancelled'];
+  if (!allowed.includes(status)) {
+    return res.status(400).json({ success: false, message: 'Invalid status value' });
+  }
+  try {
+    const { data, error } = await supabase
+      .from('appointments')
+      .update({ status, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .single();
+    if (error) throw error;
+    res.json({ success: true, appointment: data });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed to update status', error: err.message });
+  }
+});
+
 // Admin API for archival of appointment list CRUD
 router.get('/archived-appointments', (req, res) => {
   res.json({ success: true, archived: [] });
@@ -54,7 +75,7 @@ router.delete('/archived-appointments/:id', (req, res) => {
   res.json({ success: true, message: 'Archived appointment deleted' });
 });
 
-// Admin login (with DB lookup)
+// Admin login (with DB lookup) - Done
 router.post('/login', async (req, res) => {
   const { email, password } = req.body;
   try {
@@ -82,7 +103,7 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// Register new admin user
+// Register new admin user - Done
 router.post('/register', async (req, res) => {
   const { email, password, role } = req.body;
   try {
