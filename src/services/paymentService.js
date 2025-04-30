@@ -76,7 +76,23 @@ const createTestPaymentLink = async () => {
   return await createPaymentLink(defaultPaymentData);
 };
 
+/**
+ * Verifies and parses PayMongo webhook payload
+ * @param {object} req - Express request object with raw body
+ * @returns {object} Parsed event payload
+ */
+function verifyWebhook(req) {
+  // Handle raw buffer or already-parsed JSON body
+  if (Buffer.isBuffer(req.body)) {
+    return JSON.parse(req.body.toString());
+  }
+  return req.body;
+}
+
+
+
 module.exports = {
   createPaymentLink,
-  createTestPaymentLink
+  createTestPaymentLink,
+  verifyWebhook,
 };

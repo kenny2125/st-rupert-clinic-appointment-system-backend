@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const emailService = require('../services/emailService');
+const supabase = require('../config/supabase');
+const paymentService = require('../services/paymentService'); // Assuming you have a paymentService for handling payments
 
 
 // Route to send email verification code - Done
@@ -44,54 +46,69 @@ router.post('/send-verification-code', async (req, res) => {
 // Route to verify the email code - Done
 router.post('/verify-email-code', async (req, res) => {
   try {
-    const { email, code } = req.body;
-    
-    if (!email || !code) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Email and verification code are required' 
-      });
+    const { appointmentId, code } = req.body;
+    if (!appointmentId || !code) {
+      return res.status(400).json({ success: false, message: 'appointmentId and verification code are required' });
     }
-    
-    // Get stored verification data
+
+    // Fetch appointment with patient info
+    const { data: appt, error: apptError } = await supabase
+      .from('appointments')
+      .select('id, basic_info(email, first_name, last_name)')
+      .eq('id', appointmentId)
+      .single();
+    if (apptError || !appt) {
+      return res.status(400).json({ success: false, message: 'No appointment found for this ID' });
+    }
+    const { email } = appt.basic_info;
+
+    // Get stored verification data by email
     const verificationData = emailService.verificationCodes.get(email);
-    
     if (!verificationData) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'No verification code found for this email. Please request a new code.' 
-      });
+      return res.status(400).json({ success: false, message: 'No verification code found for this email. Please request a new code.' });
     }
-    
     if (verificationData.expires < Date.now()) {
-      // Remove expired code
       emailService.verificationCodes.delete(email);
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Verification code has expired. Please request a new code.' 
-      });
+      return res.status(400).json({ success: false, message: 'Verification code has expired. Please request a new code.' });
     }
-    
     if (verificationData.code !== code) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Invalid verification code. Please try again.' 
+      return res.status(400).json({ success: false, message: 'Invalid verification code. Please try again.' });
+    }
+    // Code valid - remove it
+    emailService.verificationCodes.delete(email);
+
+    // Mark email as verified on appointment
+    await supabase.from('appointments').update({ email_verified: true }).eq('id', appointmentId);
+
+    // Create payment link
+    const { first_name, last_name } = appt.basic_info;
+    const paymentData = {
+      amount: 300, // adjust amount
+      description: 'Clinic Appointment Fee',
+      name: `${first_name} ${last_name}`,
+      email
+    };
+    const paymentResult = await paymentService.createPaymentLink({ ...paymentData, appointmentId });
+    if (paymentResult.success) {
+      const linkObj = paymentResult.data.data;
+      await supabase
+        .from('appointments')
+        .update({ payment_id: linkObj.id, payment_url: linkObj.attributes.url })
+        .eq('id', appointmentId);
+      const checkoutUrl = linkObj.attributes.checkout_url || linkObj.attributes.url;
+      return res.status(200).json({
+        success: true,
+        message: 'Email verified and payment link created',
+        paymentId: linkObj.id,
+        paymentUrl: linkObj.attributes.url,
+        checkoutUrl
       });
     }
-    
-    // Code is valid - remove it from map as it's been used
-    emailService.verificationCodes.delete(email);
-    
-    res.status(200).json({ 
-      success: true,
-      message: 'Email verified successfully'
-    });
+
+    // Default success if link not created
+    return res.status(200).json({ success: true, message: 'Email verified successfully' });
   } catch (error) {
-    res.status(500).json({ 
-      success: false,
-      message: 'Error processing request',
-      error: error.message
-    });
+    res.status(500).json({ success: false, message: 'Error processing request', error: error.message });
   }
 });
 

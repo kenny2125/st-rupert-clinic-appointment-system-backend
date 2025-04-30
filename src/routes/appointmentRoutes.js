@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const supabase = require('../config/supabase');
-
+const emailService = require('../services/emailService');
 
 // Submit Appointment with procedure ID - Done
 router.post('/submit-appointment', async (req, res) => {
@@ -27,7 +27,14 @@ router.post('/submit-appointment', async (req, res) => {
       .single();
     if (apptError || !appointment) throw apptError || new Error('Failed to create appointment');
 
-    res.status(201).json({ success: true, message: 'Appointment submitted', patient, appointment });
+    // Send email verification code
+    await emailService.sendVerificationCode(email);
+
+    res.status(201).json({ 
+      success: true,
+      appointmentId: appointment.id,
+      expiresIn: '5 minutes'
+    });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Failed to submit appointment', error: err.message });
   }
@@ -36,6 +43,22 @@ router.post('/submit-appointment', async (req, res) => {
 // API to send appointment details email
 router.post('/send-appointment-details-email', (req, res) => {
   res.json({ success: true, message: 'Appointment details email sent' });
+});
+
+// Endpoint to get appointment confirmation status
+router.get('/:id/status', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { data, error } = await supabase
+      .from('appointments')
+      .select('id, email_verified, payment_status')
+      .eq('id', id)
+      .single();
+    if (error) throw error;
+    res.status(200).json({ success: true, status: data });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Failed to fetch status', error: error.message });
+  }
 });
 
 module.exports = router;
