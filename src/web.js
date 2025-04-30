@@ -30,6 +30,12 @@ app.use('/api/appointment', appointmentRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/supabase', supabaseRouter);
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+
+// only start the HTTP server when running locally
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+  });
+}
+// export the Express app for Vercel
+module.exports = app;
