@@ -61,4 +61,95 @@ router.get('/:id/status', async (req, res) => {
   }
 });
 
+// Get appointment time slot availability
+router.get('/status', async (req, res) => {
+  try {
+    // Get date parameter from request query (default to today if not provided)
+    const { startDate, endDate } = req.query;
+    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+    
+    const queryStartDate = startDate || today;
+    // Default end date to 30 days from start date if not provided
+    const queryEndDate = endDate || new Date(new Date(queryStartDate).setDate(new Date(queryStartDate).getDate() + 30)).toISOString().split('T')[0];
+    
+    // Define time slots (same as in frontend)
+    const timeSlots = [
+      { id: 1, time: "8:00 AM - 9:00 AM", maxCapacity: 10 },
+      { id: 2, time: "9:00 AM - 10:00 AM", maxCapacity: 10 },
+      { id: 3, time: "10:00 AM - 11:00 AM", maxCapacity: 10 },
+      { id: 4, time: "11:00 AM - 12:00 PM", maxCapacity: 10 },
+      { id: 5, time: "1:00 PM - 2:00 PM", maxCapacity: 10 },
+      { id: 6, time: "3:00 PM - 4:00 PM", maxCapacity: 10 },
+      { id: 7, time: "4:00 PM - 5:00 PM", maxCapacity: 10 },
+    ];
+    
+    // Query to count appointments for each date and time slot
+    const { data: appointments, error } = await supabase
+      .from('appointments')
+      .select('appointment_date, appointment_time')
+      .gte('appointment_date', queryStartDate)
+      .lte('appointment_date', queryEndDate)
+      .neq('status', 'cancelled'); // Don't count cancelled appointments
+    
+    if (error) throw error;
+    
+    // Process the appointments into the expected format
+    // Format: { "YYYY-MM-DD": { timeSlotId: bookedCount } }
+    const timeSlotAvailability = {};
+    
+    // Initialize dates in the range
+    const start = new Date(queryStartDate);
+    const end = new Date(queryEndDate);
+    for (let date = new Date(start); date <= end; date.setDate(date.getDate() + 1)) {
+      const dateString = date.toISOString().split('T')[0];
+      timeSlotAvailability[dateString] = {};
+      
+      // Initialize all time slots with 0 bookings
+      timeSlots.forEach(slot => {
+        timeSlotAvailability[dateString][slot.id] = 0;
+      });
+    }
+    
+    // Map appointment times to time slot IDs
+    const timeToSlotId = {
+      '08:00:00': 1, '8:00:00': 1,
+      '09:00:00': 2, '9:00:00': 2,
+      '10:00:00': 3,
+      '11:00:00': 4,
+      '13:00:00': 5, '1:00:00': 5,
+      '15:00:00': 6, '3:00:00': 6,
+      '16:00:00': 7, '4:00:00': 7,
+    };
+    
+    // Count booked appointments for each date and time slot
+    appointments.forEach(appointment => {
+      const dateString = appointment.appointment_date;
+      const time = appointment.appointment_time;
+      
+      // Extract hours from time (could be in HH:MM:SS format)
+      // Check if time matches any of our slots
+      const slotId = timeToSlotId[time];
+      
+      if (slotId && timeSlotAvailability[dateString]) {
+        timeSlotAvailability[dateString][slotId]++;
+      }
+    });
+    
+    res.status(200).json({ 
+      success: true, 
+      data: {
+        timeSlots,
+        timeSlotAvailability
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching time slot status:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to fetch time slot availability', 
+      error: error.message 
+    });
+  }
+});
+
 module.exports = router;
