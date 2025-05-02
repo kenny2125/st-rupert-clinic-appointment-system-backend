@@ -84,6 +84,29 @@ router.get('/today-schedule', async (req, res) => {
   }
 });
 
+// Get total appointment count for dashboard
+router.get('/total-appointments', async (req, res) => {
+  try {
+    // Count all appointments regardless of date or status
+    const { count, error } = await supabase
+      .from('appointments')
+      .select('*', { count: 'exact', head: true });
+    
+    if (error) throw error;
+    
+    res.json({
+      success: true,
+      total: count
+    });
+  } catch (err) {
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to fetch total appointments count', 
+      error: err.message 
+    });
+  }
+});
+
 // Admin API for appointment list CRUD
 
 // Done
@@ -163,6 +186,77 @@ router.get('/appointments', async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Failed to fetch appointments', error: err.message });
+  }
+});
+
+// Get all appointments regardless of date or status
+router.get('/all-appointments', async (req, res) => {
+  try {
+    // Extract query parameters for filtering
+    const { sort = 'appointment_date', order = 'desc', search } = req.query;
+
+    // Build appointment query without date filtering
+    let query = supabase.from('appointments').select('*', { count: 'exact' });
+    
+    // Handle search on basic_info fields by fetching matching ids
+    if (search) {
+      const { data: matched, error: matchErr } = await supabase
+        .from('basic_info')
+        .select('id')
+        .or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,email.ilike.%${search}%,contact_no.ilike.%${search}%`);
+      if (matchErr) throw matchErr;
+      const ids = matched.map(b => b.id);
+      if (ids.length) query = query.in('basic_info_id', ids);
+      else return res.json({ success: true, appointments: [], count: 0 });
+    }
+
+    // Fetch all appointments (no pagination)
+    const { data: appointments, error, count } = await query
+      .order(sort, { ascending: order === 'asc' });
+    if (error) throw error;
+
+    // Fetch related basic_info entries
+    const basicIds = [...new Set(appointments.map(a => a.basic_info_id))];
+    const { data: basicInfos = [], error: basicErr } = basicIds.length
+      ? await supabase
+          .from('basic_info')
+          .select('id,first_name,last_name,email,contact_no,sex,age')
+          .in('id', basicIds)
+      : { data: [], error: null };
+    if (basicErr) throw basicErr;
+
+    // Fetch related procedures
+    const procIds = [...new Set(appointments.map(a => a.procedure_id))];
+    const { data: procedures = [], error: procErr } = procIds.length
+      ? await supabase.from('procedures').select('*').in('id', procIds)
+      : { data: [], error: null };
+    if (procErr) throw procErr;
+
+    // Enrich appointments and filter payment information
+    const enriched = appointments.map(a => {
+      // Create base appointment object with patient and procedure info
+      const appointmentData = {
+        ...a,
+        basic_info: basicInfos.find(b => b.id === a.basic_info_id) || null,
+        procedure: procedures.find(p => p.id === a.procedure_id) || null,
+      };
+      
+      // Only include payment info if payment_status is 'succeeded'
+      if (a.payment_status !== 'succeeded') {
+        delete appointmentData.payment_id;
+        delete appointmentData.payment_status;
+      }
+      
+      return appointmentData;
+    });
+
+    res.json({
+      success: true,
+      appointments: enriched,
+      count
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed to fetch all appointments', error: err.message });
   }
 });
 
@@ -278,6 +372,92 @@ router.patch('/appointments/:id/status', async (req, res) => {
 });
 
 // Admin API for archival of appointment list (read-only history)
+
+// Calendar API for appointments
+router.get('/calendar', async (req, res) => {
+  try {
+    // Extract query parameters for date range (optional)
+    const { start_date, end_date } = req.query;
+    
+    // Build appointment query
+    let query = supabase.from('appointments').select('*');
+    
+    // Filter out cancelled and unpaid appointments
+    query = query.neq('status', 'cancelled');
+    query = query.eq('payment_status', 'succeeded');
+    
+    // Add date range filters if provided
+    if (start_date) query = query.gte('appointment_date', start_date);
+    if (end_date) query = query.lte('appointment_date', end_date);
+
+    // Fetch appointments
+    const { data: appointments, error } = await query;
+    if (error) throw error;
+
+    // Fetch related procedures for title information
+    const procIds = [...new Set(appointments.map(a => a.procedure_id))];
+    const { data: procedures = [], error: procErr } = procIds.length
+      ? await supabase.from('procedures').select('id,name').in('id', procIds)
+      : { data: [], error: null };
+    if (procErr) throw procErr;
+
+    // Fetch related basic info for patient information
+    const basicIds = [...new Set(appointments.map(a => a.basic_info_id))];
+    const { data: basicInfos = [], error: basicErr } = basicIds.length
+      ? await supabase
+          .from('basic_info')
+          .select('id,first_name,last_name')
+          .in('id', basicIds)
+      : { data: [], error: null };
+    if (basicErr) throw basicErr;
+
+    // Format appointments for FullCalendar
+    const calendarEvents = appointments.map(appointment => {
+      const procedure = procedures.find(p => p.id === appointment.procedure_id);
+      const patient = basicInfos.find(b => b.id === appointment.basic_info_id);
+      
+      // Create a formatted title with patient name and procedure
+      const patientName = patient ? `${patient.first_name} ${patient.last_name}` : 'Unknown Patient';
+      const procedureName = procedure ? procedure.name : 'Unknown Procedure';
+      const title = `${patientName} - ${procedureName}`;
+      
+      // Calculate end time (start time + 1 hour)
+      const startDateTime = `${appointment.appointment_date}T${appointment.appointment_time}`;
+      
+      // Parse the start time and add 1 hour to get the end time
+      const startDate = new Date(`${appointment.appointment_date}T${appointment.appointment_time}`);
+      const endDate = new Date(startDate);
+      endDate.setHours(endDate.getHours() + 1);
+      
+      // Format the end time as ISO string and extract just the time part
+      const endTime = endDate.toISOString().split('T')[1].substring(0, 8);
+      const endDateTime = `${appointment.appointment_date}T${endTime}`;
+      
+      // Create calendar event object
+      return {
+        id: appointment.id,
+        title: title,
+        start: startDateTime,
+        end: endDateTime,
+        extendedProps: {
+          status: appointment.status
+        }
+      };
+    });
+
+    res.json({
+      success: true,
+      events: calendarEvents
+    });
+  } catch (err) {
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to fetch calendar events', 
+      error: err.message 
+    });
+  }
+});
+
 router.get('/archived-appointments', async (req, res) => {
   try {
     const today = new Date().toISOString().split('T')[0];
