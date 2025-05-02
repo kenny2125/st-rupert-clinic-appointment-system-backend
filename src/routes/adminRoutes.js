@@ -91,12 +91,19 @@ router.get('/appointments', async (req, res) => {
   try {
     // Extract query parameters for filtering (not pagination)
     const { sort = 'appointment_date', order = 'desc', status, search, start_date, end_date } = req.query;
+    
+    // Get today's date in YYYY-MM-DD format
+    const today = new Date().toISOString().split('T')[0]; 
 
     // Build appointment query
     let query = supabase.from('appointments').select('*', { count: 'exact' });
     if (status) query = query.eq('status', status);
-    if (start_date) query = query.gte('appointment_date', start_date);
+    
+    // Default to today's date if no start_date is provided
+    query = query.gte('appointment_date', start_date || today);
+    
     if (end_date) query = query.lte('appointment_date', end_date);
+    
     // Handle search on basic_info fields by fetching matching ids
     if (search) {
       const { data: matched, error: matchErr } = await supabase
@@ -131,12 +138,23 @@ router.get('/appointments', async (req, res) => {
       : { data: [], error: null };
     if (procErr) throw procErr;
 
-    // Enrich appointments
-    const enriched = appointments.map(a => ({
-      ...a,
-      basic_info: basicInfos.find(b => b.id === a.basic_info_id) || null,
-      procedure: procedures.find(p => p.id === a.procedure_id) || null,
-    }));
+    // Enrich appointments and filter payment information
+    const enriched = appointments.map(a => {
+      // Create base appointment object with patient and procedure info
+      const appointmentData = {
+        ...a,
+        basic_info: basicInfos.find(b => b.id === a.basic_info_id) || null,
+        procedure: procedures.find(p => p.id === a.procedure_id) || null,
+      };
+      
+      // Only include payment info if payment_status is 'succeeded'
+      if (a.payment_status !== 'succeeded') {
+        delete appointmentData.payment_id;
+        delete appointmentData.payment_status;
+      }
+      
+      return appointmentData;
+    });
 
     res.json({
       success: true,
@@ -178,7 +196,16 @@ router.get('/appointments/:id', async (req, res) => {
       .single();
     if (procErr) throw procErr;
 
-    res.json({ success: true, appointment: { ...appointment, basic_info, procedure } });
+    // Create the response object
+    const appointmentData = { ...appointment, basic_info, procedure };
+    
+    // Only include payment info if payment_status is 'succeeded'
+    if (appointment.payment_status !== 'succeeded') {
+      delete appointmentData.payment_id;
+      delete appointmentData.payment_status;
+    }
+
+    res.json({ success: true, appointment: appointmentData });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Failed to fetch appointment', error: err.message });
   }
