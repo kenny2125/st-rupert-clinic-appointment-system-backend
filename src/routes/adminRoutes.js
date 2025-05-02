@@ -89,11 +89,8 @@ router.get('/today-schedule', async (req, res) => {
 // Done
 router.get('/appointments', async (req, res) => {
   try {
-    // Extract query parameters
-    const { page = 1, limit = 10, sort = 'appointment_date', order = 'desc', status, search, start_date, end_date } = req.query;
-    const pageNum = parseInt(page);
-    const limitNum = parseInt(limit);
-    const start = (pageNum - 1) * limitNum;
+    // Extract query parameters for filtering (not pagination)
+    const { sort = 'appointment_date', order = 'desc', status, search, start_date, end_date } = req.query;
 
     // Build appointment query
     let query = supabase.from('appointments').select('*', { count: 'exact' });
@@ -109,13 +106,12 @@ router.get('/appointments', async (req, res) => {
       if (matchErr) throw matchErr;
       const ids = matched.map(b => b.id);
       if (ids.length) query = query.in('basic_info_id', ids);
-      else return res.json({ success: true, appointments: [], pagination: { page: pageNum, limit: limitNum, total: 0, pages: 0 } });
+      else return res.json({ success: true, appointments: [], count: 0 });
     }
 
-    // Fetch appointments
+    // Fetch all appointments (no pagination)
     const { data: appointments, error, count } = await query
-      .order(sort, { ascending: order === 'asc' })
-      .range(start, start + limitNum - 1);
+      .order(sort, { ascending: order === 'asc' });
     if (error) throw error;
 
     // Fetch related basic_info entries
@@ -145,7 +141,7 @@ router.get('/appointments', async (req, res) => {
     res.json({
       success: true,
       appointments: enriched,
-      pagination: { page: pageNum, limit: limitNum, total: count, pages: Math.ceil(count / limitNum) }
+      count
     });
   } catch (err) {
     res.status(500).json({ success: false, message: 'Failed to fetch appointments', error: err.message });
