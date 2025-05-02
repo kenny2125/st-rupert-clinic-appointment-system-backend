@@ -20,6 +20,70 @@ router.get('/dashboard-insights', (req, res) => {
   res.json({ success: true, data: {} });
 });
 
+// Endpoint to get today's appointments for dashboard
+router.get('/today-schedule', async (req, res) => {
+  try {
+    const today = new Date().toISOString().split('T')[0]; // Get today's date in YYYY-MM-DD format
+    
+    // Query appointments for today
+    const { data: appointments, error, count } = await supabase
+      .from('appointments')
+      .select('*', { count: 'exact' })
+      .eq('appointment_date', today)
+      .order('appointment_time', { ascending: true });
+    
+    if (error) throw error;
+    
+    // Fetch related basic_info entries
+    const basicIds = [...new Set(appointments.map(a => a.basic_info_id))];
+    const { data: basicInfos = [], error: basicErr } = basicIds.length
+      ? await supabase
+          .from('basic_info')
+          .select('id,first_name,last_name,email,contact_no,sex,age')
+          .in('id', basicIds)
+      : { data: [], error: null };
+    
+    if (basicErr) throw basicErr;
+    
+    // Fetch related procedures
+    const procIds = [...new Set(appointments.map(a => a.procedure_id))];
+    const { data: procedures = [], error: procErr } = procIds.length
+      ? await supabase.from('procedures').select('*').in('id', procIds)
+      : { data: [], error: null };
+    
+    if (procErr) throw procErr;
+    
+    // Enrich appointments with patient and procedure info
+    const todaySchedule = appointments.map(a => ({
+      ...a,
+      basic_info: basicInfos.find(b => b.id === a.basic_info_id) || null,
+      procedure: procedures.find(p => p.id === a.procedure_id) || null,
+    }));
+    
+    // Get counts for different statuses
+    const statusCounts = {
+      total: todaySchedule.length,
+      pending: todaySchedule.filter(a => a.status === 'pending').length,
+      complete: todaySchedule.filter(a => a.status === 'complete').length,
+      cancelled: todaySchedule.filter(a => a.status === 'cancelled').length,
+      checkedIn: todaySchedule.filter(a => a.status === 'checked-in').length,
+      inConsultation: todaySchedule.filter(a => a.status === 'in_consultation').length
+    };
+    
+    res.json({
+      success: true,
+      todaySchedule,
+      statusCounts
+    });
+  } catch (err) {
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to fetch today\'s schedule', 
+      error: err.message 
+    });
+  }
+});
+
 // Admin API for appointment list CRUD
 
 // Done
