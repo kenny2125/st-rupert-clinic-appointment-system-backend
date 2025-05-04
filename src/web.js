@@ -14,7 +14,11 @@ const PORT = process.env.PORT || 3000;
 
 
 app.use(express.json());
-app.use(cors());
+// Updated CORS configuration to allow requests from localhost development server
+app.use(cors({
+  origin: ['http://localhost:5173', 'http://localhost:3000', 'https://st-rupert-clinic-appointment-system.vercel.app'],
+  credentials: true
+}));
 
 
 emailService.setupVerificationCodeCleanup();
