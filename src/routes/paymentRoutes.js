@@ -101,7 +101,23 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
       .single();
 
     if (!apptError && appt) {
-      // Send confirmation email
+      // Fetch procedure details
+      const { data: proc, error: procError } = await supabase
+        .from('procedures')
+        .select('name, service_id')
+        .eq('id', appt.procedure_id)
+        .single();
+      let serviceName = null;
+      if (!procError && proc) {
+        // Fetch service name
+        const { data: serv, error: servError } = await supabase
+          .from('services')
+          .select('name')
+          .eq('id', proc.service_id)
+          .single();
+        if (!servError && serv) serviceName = serv.name;
+      }
+      // Send confirmation email with names
       await emailService.sendAppointmentConfirmation({
         fullName: `${appt.basic_info.first_name} ${appt.basic_info.last_name}`,
         gender: appt.basic_info.sex,
@@ -110,8 +126,8 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
         contactNo: appt.basic_info.contact_no,
         address: appt.basic_info.address,
         reason: appt.basic_info.reason,
-        service: appt.procedure_id,
-        procedure: appt.procedure_id,
+        service: serviceName,
+        procedure: proc ? proc.name : null,
         date: appt.appointment_date,
         time: appt.appointment_time,
         price: null
