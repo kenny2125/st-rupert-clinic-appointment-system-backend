@@ -39,7 +39,7 @@ router.get('/today-schedule', async (req, res) => {
     const { data: basicInfos = [], error: basicErr } = basicIds.length
       ? await supabase
           .from('basic_info')
-          .select('id,first_name,last_name,email,contact_no,sex,age')
+          .select('id,first_name,last_name,email,contact_no,sex,age,date_of_birth,address')
           .in('id', basicIds)
       : { data: [], error: null };
     
@@ -133,10 +133,32 @@ router.get('/appointments', async (req, res) => {
         .from('basic_info')
         .select('id')
         .or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,email.ilike.%${search}%,contact_no.ilike.%${search}%`);
+      
       if (matchErr) throw matchErr;
+      
+      // Also search in procedure names
+      const { data: matchedProcedures, error: procMatchErr } = await supabase
+        .from('procedures')
+        .select('id')
+        .ilike('name', `%${search}%`);
+        
+      if (procMatchErr) throw procMatchErr;
+      
+      // If we have patient matches, filter by patient ids
       const ids = matched.map(b => b.id);
-      if (ids.length) query = query.in('basic_info_id', ids);
-      else return res.json({ success: true, appointments: [], count: 0 });
+      
+      if (ids.length > 0) {
+        query = query.in('basic_info_id', ids);
+      } 
+      // If we have procedure matches, filter by procedure ids
+      else if (matchedProcedures?.length > 0) {
+        const procIds = matchedProcedures.map(p => p.id);
+        query = query.in('procedure_id', procIds);
+      }
+      // If no matches found in patients or procedures, return empty result
+      else {
+        return res.json({ success: true, appointments: [], count: 0 });
+      }
     }
 
     // Fetch all appointments (no pagination)
@@ -149,7 +171,7 @@ router.get('/appointments', async (req, res) => {
     const { data: basicInfos = [], error: basicErr } = basicIds.length
       ? await supabase
           .from('basic_info')
-          .select('id,first_name,last_name,email,contact_no,sex,age')
+          .select('id,first_name,last_name,email,contact_no,sex,age,date_of_birth,address')
           .in('id', basicIds)
       : { data: [], error: null };
     if (basicErr) throw basicErr;
@@ -204,10 +226,32 @@ router.get('/all-appointments', async (req, res) => {
         .from('basic_info')
         .select('id')
         .or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,email.ilike.%${search}%,contact_no.ilike.%${search}%`);
+      
       if (matchErr) throw matchErr;
+      
+      // Also search in procedure names
+      const { data: matchedProcedures, error: procMatchErr } = await supabase
+        .from('procedures')
+        .select('id')
+        .ilike('name', `%${search}%`);
+        
+      if (procMatchErr) throw procMatchErr;
+      
+      // If we have patient matches, filter by patient ids
       const ids = matched.map(b => b.id);
-      if (ids.length) query = query.in('basic_info_id', ids);
-      else return res.json({ success: true, appointments: [], count: 0 });
+      
+      if (ids.length > 0) {
+        query = query.in('basic_info_id', ids);
+      } 
+      // If we have procedure matches, filter by procedure ids
+      else if (matchedProcedures?.length > 0) {
+        const procIds = matchedProcedures.map(p => p.id);
+        query = query.in('procedure_id', procIds);
+      }
+      // If no matches found in patients or procedures, return empty result
+      else {
+        return res.json({ success: true, appointments: [], count: 0 });
+      }
     }
 
     // Fetch all appointments (no pagination)
@@ -220,7 +264,7 @@ router.get('/all-appointments', async (req, res) => {
     const { data: basicInfos = [], error: basicErr } = basicIds.length
       ? await supabase
           .from('basic_info')
-          .select('id,first_name,last_name,email,contact_no,sex,age')
+          .select('id,first_name,last_name,email,contact_no,sex,age,date_of_birth,address')
           .in('id', basicIds)
       : { data: [], error: null };
     if (basicErr) throw basicErr;
@@ -277,7 +321,7 @@ router.get('/appointments/:id', async (req, res) => {
     // Fetch related basic_info
     const { data: basic_info, error: basicErr } = await supabase
       .from('basic_info')
-      .select('id,first_name,last_name,email,contact_no,sex,age')
+      .select('id,first_name,last_name,email,contact_no,sex,age,date_of_birth,address')
       .eq('id', appointment.basic_info_id)
       .single();
     if (basicErr) throw basicErr;
@@ -471,7 +515,7 @@ router.get('/archived-appointments', async (req, res) => {
     // Fetch related basic_info
     const basicIds = [...new Set(appointments.map(a => a.basic_info_id))];
     const { data: basicInfos = [], error: basicErr } = basicIds.length
-      ? await supabase.from('basic_info').select('id,first_name,last_name,email,contact_no,sex,age').in('id', basicIds)
+      ? await supabase.from('basic_info').select('id,first_name,last_name,email,contact_no,sex,age,date_of_birth,address').in('id', basicIds)
       : { data: [], error: null };
     if (basicErr) throw basicErr;
 
@@ -541,5 +585,333 @@ router.put('/archived-appointments/:id', (req, res) =>
 router.delete('/archived-appointments/:id', (req, res) =>
   res.status(405).json({ success: false, message: 'Archived records are read-only' })
 );
+
+// Get tomorrow's appointments count for dashboard
+router.get('/tomorrow-schedule-count', async (req, res) => {
+  try {
+    // Calculate tomorrow's date
+    const today = new Date();
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowDate = tomorrow.toISOString().split('T')[0]; // Format as YYYY-MM-DD
+    
+    // Query count of appointments for tomorrow
+    const { count, error } = await supabase
+      .from('appointments')
+      .select('*', { count: 'exact', head: true })
+      .eq('appointment_date', tomorrowDate);
+    
+    if (error) throw error;
+    
+    res.json({
+      success: true,
+      count: count || 0
+    });
+  } catch (err) {
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to fetch tomorrow\'s appointment count', 
+      error: err.message 
+    });
+  }
+});
+
+// Add a new route to get tomorrow's appointments
+router.get('/tomorrow-schedule', async (req, res) => {
+  try {
+    // Calculate tomorrow's date
+    const today = new Date();
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowDate = tomorrow.toISOString().split('T')[0]; // Format as YYYY-MM-DD
+    
+    // Query appointments for tomorrow
+    const { data: appointments, error, count } = await supabase
+      .from('appointments')
+      .select('*', { count: 'exact' })
+      .eq('appointment_date', tomorrowDate)
+      .order('appointment_time', { ascending: true });
+    
+    if (error) throw error;
+    
+    // Fetch related basic_info entries
+    const basicIds = [...new Set(appointments.map(a => a.basic_info_id))];
+    const { data: basicInfos = [], error: basicErr } = basicIds.length
+      ? await supabase
+          .from('basic_info')
+          .select('id,first_name,last_name,email,contact_no,sex,age,date_of_birth,address')
+          .in('id', basicIds)
+      : { data: [], error: null };
+    
+    if (basicErr) throw basicErr;
+    
+    // Fetch related procedures
+    const procIds = [...new Set(appointments.map(a => a.procedure_id))];
+    const { data: procedures = [], error: procErr } = procIds.length
+      ? await supabase.from('procedures').select('*').in('id', procIds)
+      : { data: [], error: null };
+    
+    if (procErr) throw procErr;
+    
+    // Enrich appointments with patient and procedure info
+    const tomorrowSchedule = appointments.map(a => ({
+      ...a,
+      basic_info: basicInfos.find(b => b.id === a.basic_info_id) || null,
+      procedure: procedures.find(p => p.id === a.procedure_id) || null,
+    }));
+    
+    // Get counts for different statuses
+    const statusCounts = {
+      total: tomorrowSchedule.length,
+      pending: tomorrowSchedule.filter(a => a.status === 'pending').length,
+      complete: tomorrowSchedule.filter(a => a.status === 'complete').length,
+      cancelled: tomorrowSchedule.filter(a => a.status === 'cancelled').length,
+      checkedIn: tomorrowSchedule.filter(a => a.status === 'checked-in').length,
+      inConsultation: tomorrowSchedule.filter(a => a.status === 'in_consultation').length
+    };
+    
+    res.json({
+      success: true,
+      tomorrowSchedule,
+      statusCounts
+    });
+  } catch (err) {
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to fetch tomorrow\'s schedule', 
+      error: err.message 
+    });
+  }
+});
+
+// Get appointment insights for dashboard
+router.get('/appointment-insights', async (req, res) => {
+  try {
+    // Get the current date
+    const today = new Date().toISOString().split('T')[0];
+    
+    // Get completion rate of past appointments
+    const { data: statusStats, error: statusError } = await supabase
+      .from('appointments')
+      .select('status')
+      .lt('appointment_date', today); // Only past appointments
+    
+    if (statusError) throw statusError;
+    
+    const totalPastAppointments = statusStats.length;
+    const completedAppointments = statusStats.filter(a => a.status === 'complete').length;
+    const cancelledAppointments = statusStats.filter(a => a.status === 'cancelled').length;
+    const pendingAppointments = statusStats.filter(a => a.status === 'pending').length;
+    
+    // Count uncompleted (cancelled + pending) appointments
+    const uncompletedAppointments = cancelledAppointments + pendingAppointments;
+    
+    const completionRate = totalPastAppointments > 0 
+      ? Math.round((completedAppointments / totalPastAppointments) * 100) 
+      : 0;
+    
+    // Calculate completion to uncompleted ratio (completed vs. cancelled + pending)
+    const completionToUncompletedRatio = uncompletedAppointments > 0
+      ? (completedAppointments / uncompletedAppointments).toFixed(2)
+      : completedAppointments > 0 ? 'Inf' : '0';
+    
+    res.json({
+      success: true,
+      insights: {
+        completionRate,
+        completionToUncompletedRatio,
+        statsDetail: {
+          total: totalPastAppointments,
+          completed: completedAppointments,
+          cancelled: cancelledAppointments,
+          pending: pendingAppointments,
+          uncompleted: uncompletedAppointments
+        }
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to fetch appointment insights', 
+      error: err.message 
+    });
+  }
+});
+
+// Get appointments for a specific date
+router.get('/date-schedule/:date', async (req, res) => {
+  try {
+    const { date } = req.params; // Get the date parameter in YYYY-MM-DD format
+    
+    // Validate date format
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    if (!dateRegex.test(date)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid date format. Please use YYYY-MM-DD format.' 
+      });
+    }
+    
+    // Query appointments for the specific date
+    const { data: appointments, error, count } = await supabase
+      .from('appointments')
+      .select('*', { count: 'exact' })
+      .eq('appointment_date', date)
+      .order('appointment_time', { ascending: true });
+    
+    if (error) throw error;
+    
+    // Fetch related basic_info entries
+    const basicIds = [...new Set(appointments.map(a => a.basic_info_id))];
+    const { data: basicInfos = [], error: basicErr } = basicIds.length
+      ? await supabase
+          .from('basic_info')
+          .select('id,first_name,last_name,email,contact_no,sex,age,date_of_birth,address')
+          .in('id', basicIds)
+      : { data: [], error: null };
+    
+    if (basicErr) throw basicErr;
+    
+    // Fetch related procedures
+    const procIds = [...new Set(appointments.map(a => a.procedure_id))];
+    const { data: procedures = [], error: procErr } = procIds.length
+      ? await supabase.from('procedures').select('*').in('id', procIds)
+      : { data: [], error: null };
+    if (procErr) throw procErr;
+
+    // Enrich appointments with patient and procedure info
+    const dateSchedule = appointments.map(a => ({
+      ...a,
+      basic_info: basicInfos.find(b => b.id === a.basic_info_id) || null,
+      procedure: procedures.find(p => p.id === a.procedure_id) || null,
+    }));
+    
+    // Get counts for different statuses
+    const statusCounts = {
+      total: dateSchedule.length,
+      pending: dateSchedule.filter(a => a.status === 'pending').length,
+      complete: dateSchedule.filter(a => a.status === 'complete').length,
+      cancelled: dateSchedule.filter(a => a.status === 'cancelled').length,
+      checkedIn: dateSchedule.filter(a => a.status === 'checked-in').length,
+      inConsultation: dateSchedule.filter(a => a.status === 'in_consultation').length
+    };
+    
+    res.json({
+      success: true,
+      dateSchedule,
+      statusCounts,
+      date
+    });
+  } catch (err) {
+    res.status(500).json({ 
+      success: false, 
+      message: `Failed to fetch schedule for the specified date`, 
+      error: err.message 
+    });
+  }
+});
+
+// Get most common procedure for dashboard
+router.get('/most-common-procedure', async (req, res) => {
+  try {
+    // Get the current date
+    const today = new Date().toISOString().split('T')[0];
+    
+    // Query to find the most booked procedure
+    const { data: procCounts, error } = await supabase
+      .from('appointments')
+      .select('procedure_id, count')
+      .order('count', { ascending: false })
+      .limit(1)
+      .then(result => {
+        // If direct count didn't work, we'll need to manually count
+        if (result.error || !result.data || result.data.length === 0) {
+          return supabase
+            .from('appointments')
+            .select('procedure_id')
+            .neq('status', 'cancelled');
+        }
+        return result;
+      });
+    
+    if (error) throw error;
+    
+    // If we got a pre-counted result
+    if (procCounts[0]?.count) {
+      const procId = procCounts[0].procedure_id;
+      
+      // Get procedure name
+      const { data: procedure, error: procError } = await supabase
+        .from('procedures')
+        .select('name')
+        .eq('id', procId)
+        .single();
+        
+      if (procError) throw procError;
+      
+      return res.json({
+        success: true,
+        procedure: {
+          name: procedure.name,
+          count: procCounts[0].count
+        }
+      });
+    }
+    
+    // If we need to manually count
+    // Count occurrences of each procedure
+    const procedureCounts = {};
+    procCounts.forEach(appt => {
+      if (!procedureCounts[appt.procedure_id]) {
+        procedureCounts[appt.procedure_id] = 0;
+      }
+      procedureCounts[appt.procedure_id]++;
+    });
+    
+    // Find the procedure with the highest count
+    let maxCount = 0;
+    let mostCommonProcId = null;
+    
+    Object.entries(procedureCounts).forEach(([procId, count]) => {
+      if (count > maxCount) {
+        maxCount = count;
+        mostCommonProcId = procId;
+      }
+    });
+    
+    if (!mostCommonProcId) {
+      return res.json({
+        success: true,
+        procedure: {
+          name: 'No data available',
+          count: 0
+        }
+      });
+    }
+    
+    // Get procedure name
+    const { data: procedure, error: procError } = await supabase
+      .from('procedures')
+      .select('name')
+      .eq('id', mostCommonProcId)
+      .single();
+      
+    if (procError) throw procError;
+    
+    res.json({
+      success: true,
+      procedure: {
+        name: procedure.name,
+        count: maxCount
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to fetch most common procedure', 
+      error: err.message 
+    });
+  }
+});
 
 module.exports = router;
