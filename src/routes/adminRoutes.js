@@ -420,22 +420,11 @@ router.patch('/appointments/:id/status', async (req, res) => {
 // Calendar API for appointments
 router.get('/calendar', async (req, res) => {
   try {
-    // Extract query parameters for date range (optional)
-    const { start_date, end_date } = req.query;
-    
-    // Build appointment query
-    let query = supabase.from('appointments').select('*');
-    
-    // Filter out cancelled and unpaid appointments
-    query = query.neq('status', 'cancelled');
-    query = query.eq('payment_status', 'succeeded');
-    
-    // Add date range filters if provided
-    if (start_date) query = query.gte('appointment_date', start_date);
-    if (end_date) query = query.lte('appointment_date', end_date);
-
-    // Fetch appointments
-    const { data: appointments, error } = await query;
+    // Build appointment query to fetch all appointments
+    const { data: appointments, error } = await supabase
+      .from('appointments')
+      .select('*')
+      .neq('status', 'cancelled');  // removed payment_status filter
     if (error) throw error;
 
     // Fetch related procedures for title information
