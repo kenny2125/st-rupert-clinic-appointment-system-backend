@@ -77,7 +77,7 @@ This is the **backend API** for the St. Rupert Medical Clinic Appointment System
 ## Frontend Repository
 
 The frontend for this project is available at:  
-[https://github.com/kenny2125/st-rupert-clinic-appointment-system](https://github.com/kenny2125/st-rupert-clinic-appointment-system)
+[https://github.com/kenny2125/st-rupert-clinic-appointment-system-backend](https://github.com/kenny2125/st-rupert-clinic-appointment-system)
 
 ## License
 
